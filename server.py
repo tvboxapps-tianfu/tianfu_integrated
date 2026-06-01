@@ -1,23 +1,20 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from openai import OpenAI
-import json, os, time, threading, schedule
+import json, os, time, threading, schedule, subprocess, uuid, requests
 from datetime import datetime
 from pywebpush import webpush, WebPushException
-import edge_tts
-import tempfile
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# ========== 替换为你的真实信息 ==========
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_KEY", "sk-72d7c58fb266476f8eef5e1d3ca3951a")# 改这里
-VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "gWl0fvQHUnknqrL5Gb9RQo3Y4HrrpJC-tCTMVpdrpPs")# 改这里
-VAPID_CLAIMS = {"sub": os.environ.get("VAPID_CLAIMS_EMAIL", "mailto:tvboxapps88@gmail.com")}# 改这里，填你的邮箱
-HA_URL = os.environ.get("HA_URL", "http://你的HA地址:8123")# 如果没有，可以随便填，不会报错
-HA_TOKEN = os.environ.get("HA_TOKEN", "")# 没有则留空字符串
-                       
-# =====================================
+# ========== 配置信息（请根据实际情况修改） ==========
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_KEY", "sk-72d7c58fb266476f8eef5e1d3ca3951a")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "gWl0fvQHUnknqrL5Gb9RQo3Y4HrrpJC-tCTMVpdrpPs")
+VAPID_CLAIMS = {"sub": os.environ.get("VAPID_CLAIMS_EMAIL", "mailto:tvboxapps88@gmail.com")}
+HA_URL = os.environ.get("HA_URL", "http://你的HA地址:8123")   # 没有 Home Assistant 可忽略
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+# =================================================
 
 client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 MEMORY_FILE = "tianfu_memory.json"
@@ -126,21 +123,11 @@ tools = [
 ]
 
 # ---------- 路由 ----------
-import requests as req_lib   # 放在顶部 import 里也可，这里补上
-
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
     user_text = data.get("message", "")
     history = data.get("history", [])
-
-@app.route("/speak", methods=["POST"])
-def speak_tts():
-    text = request.json.get("text", "")
-    communicate = edge_tts.Communicate(text, "zh-CN-YunxiNeural")  # 云希，男声
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-        await communicate.save(tmp.name)
-        return send_file(tmp.name, mimetype="audio/mpeg", as_attachment=False)
 
     system_prompt = build_system_prompt()
     messages = [{"role": "system", "content": system_prompt}]
@@ -190,6 +177,21 @@ def speak_tts():
     save_memory(mem)
 
     return jsonify({"reply": reply})
+
+@app.route("/speak", methods=["POST"])
+def speak_tts():
+    text = request.json.get("text", "")
+    if not text:
+        return "无文本", 400
+    filename = f"static/audio_{uuid.uuid4().hex}.mp3"
+    # 使用命令行调用 edge-tts，生成男声云希
+    subprocess.run([
+        "edge-tts",
+        "--voice", "zh-CN-YunxiNeural",
+        "--text", text,
+        "--write-media", filename
+    ], check=True)
+    return send_file(filename, mimetype="audio/mpeg")
 
 @app.route("/subscribe", methods=["POST"])
 def subscribe():
