@@ -140,8 +140,7 @@ def chat():
         messages=messages,
         temperature=0.8,
         tools=tools,
-        tool_choice="auto",
-        enable_search=True   # 允许联网搜索
+        tool_choice="auto"
 )
     reply_msg = response.choices[0].message
 
