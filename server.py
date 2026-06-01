@@ -4,6 +4,8 @@ from openai import OpenAI
 import json, os, time, threading, schedule
 from datetime import datetime
 from pywebpush import webpush, WebPushException
+import edge_tts
+import tempfile
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
@@ -131,6 +133,14 @@ def chat():
     data = request.json
     user_text = data.get("message", "")
     history = data.get("history", [])
+
+@app.route("/speak", methods=["POST"])
+def speak_tts():
+    text = request.json.get("text", "")
+    communicate = edge_tts.Communicate(text, "zh-CN-YunxiNeural")  # 云希，男声
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        await communicate.save(tmp.name)
+        return send_file(tmp.name, mimetype="audio/mpeg", as_attachment=False)
 
     system_prompt = build_system_prompt()
     messages = [{"role": "system", "content": system_prompt}]

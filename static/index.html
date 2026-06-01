@@ -41,41 +41,29 @@
       chatDiv.scrollTop = chatDiv.scrollHeight;
     }
 
-    let maleVoice = null;
-
-function loadMaleVoice() {
-  return new Promise((resolve) => {
-    const voices = speechSynthesis.getVoices();
-    if (voices.length) {
-      maleVoice = voices.find(v =>
-        v.lang.startsWith('zh') && (v.name.includes('男') || v.name.includes('Male'))
-      );
-      resolve();
-    } else {
-      speechSynthesis.onvoiceschanged = () => {
-        const updatedVoices = speechSynthesis.getVoices();
-        maleVoice = updatedVoices.find(v =>
-          v.lang.startsWith('zh') && (v.name.includes('男') || v.name.includes('Male'))
-        );
-        resolve();
-      };
+    // ========== 语音输出：后端云希男声，失败时回退浏览器语音 ==========
+    async function speakText(text) {
+      try {
+        const resp = await fetch('/speak', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: text})
+        });
+        if (!resp.ok) throw new Error('语音请求失败');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      } catch(e) {
+        console.error('语音合成失败：', e);
+        // 兜底：如果后端语音失败，再用浏览器默认语音（至少不会沉默）
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'zh-CN';
+          window.speechSynthesis.speak(utterance);
+        }
+      }
     }
-  });
-}
-
-loadMaleVoice();
-
-function speakText(text) {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    utterance.rate = 1.0;
-    if (maleVoice) {
-      utterance.voice = maleVoice;
-    }
-    window.speechSynthesis.speak(utterance);
-  }
-}
 
     async function sendMessage(message) {
       addMessage(message, 'user');
@@ -86,12 +74,13 @@ function speakText(text) {
       });
       const data = await resp.json();
       addMessage(data.reply, 'tianfu');
-      speakText(data.reply);
+      speakText(data.reply);                    // 现在会调用后端男声
       history.push({role: 'user', content: message});
       history.push({role: 'assistant', content: data.reply});
       if (history.length > 20) history = history.slice(-20);
     }
 
+    // ========== 语音输入 ==========
     micBtn.addEventListener('pointerdown', () => {
       if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         alert('您的浏览器不支持语音识别，请使用 Chrome。');
@@ -113,7 +102,7 @@ function speakText(text) {
     micBtn.addEventListener('pointerup', () => { if (recognition) recognition.stop(); });
     micBtn.addEventListener('pointerleave', () => { if (recognition) recognition.stop(); });
 
-    // ---------- 推送订阅 ----------
+    // ========== 推送订阅 ==========
     let swRegistration = null;
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
@@ -125,7 +114,7 @@ function speakText(text) {
     async function subscribeUser() {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') return;
-      const vapidPublicKey = 'BJr_tACbqDfV_wonTD96-Yfm8Cg9uQkvUIMfyHpLlSQ_tyAg2vI4v5nLlO_kECYioqgM6knD84qx2UtJjk9XCeY';   // 替换！
+      const vapidPublicKey = 'BJr_tACbqDfV_wonTD96-Yfm8Cg9uQkvUIMfyHpLlSQ_tyAg2vI4v5nLlO_kECYioqgM6knD84qx2UtJjk9XCeY';
       const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
       const subscription = await swRegistration.pushManager.subscribe({
         userVisibleOnly: true,

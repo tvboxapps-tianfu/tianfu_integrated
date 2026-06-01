@@ -4,3 +4,4 @@ openai
 schedule
 pywebpush
 requests
+edge-tts
