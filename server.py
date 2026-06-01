@@ -198,6 +198,10 @@ def index():
 def sw():
     return send_from_directory(app.static_folder, "sw.js")
 
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory(app.static_folder, "manifest.json")
+
 if __name__ == "__main__":
     threading.Thread(target=run_scheduler, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
