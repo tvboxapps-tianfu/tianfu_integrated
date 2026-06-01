@@ -41,14 +41,41 @@
       chatDiv.scrollTop = chatDiv.scrollHeight;
     }
 
-    function speakText(text) {
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'zh-CN';
-        utterance.rate = 1.0;
-        window.speechSynthesis.speak(utterance);
-      }
+    let maleVoice = null;
+
+function loadMaleVoice() {
+  return new Promise((resolve) => {
+    const voices = speechSynthesis.getVoices();
+    if (voices.length) {
+      maleVoice = voices.find(v =>
+        v.lang.startsWith('zh') && (v.name.includes('男') || v.name.includes('Male'))
+      );
+      resolve();
+    } else {
+      speechSynthesis.onvoiceschanged = () => {
+        const updatedVoices = speechSynthesis.getVoices();
+        maleVoice = updatedVoices.find(v =>
+          v.lang.startsWith('zh') && (v.name.includes('男') || v.name.includes('Male'))
+        );
+        resolve();
+      };
     }
+  });
+}
+
+loadMaleVoice();
+
+function speakText(text) {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = 1.0;
+    if (maleVoice) {
+      utterance.voice = maleVoice;
+    }
+    window.speechSynthesis.speak(utterance);
+  }
+}
 
     async function sendMessage(message) {
       addMessage(message, 'user');
