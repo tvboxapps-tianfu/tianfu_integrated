@@ -42,28 +42,37 @@
     }
 
     // ========== 语音输出：后端云希男声，失败时回退浏览器语音 ==========
-    async function speakText(text) {
-      try {
-        const resp = await fetch('/speak', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({text: text})
-        });
-        if (!resp.ok) throw new Error('语音请求失败');
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.play();
-      } catch(e) {
-        console.error('语音合成失败：', e);
-        // 兜底：如果后端语音失败，再用浏览器默认语音（至少不会沉默）
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = 'zh-CN';
-          window.speechSynthesis.speak(utterance);
-        }
-      }
+   let currentAudio = null;   // 全局变量，记录当前播放的音频
+
+async function speakText(text) {
+  // 如果之前有音频在播，立即停止
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+  try {
+    const resp = await fetch('/speak', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: text})
+    });
+    if (!resp.ok) throw new Error('语音请求失败');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.play();
+    audio.onended = () => { currentAudio = null; };  // 播放完毕自动清除
+  } catch(e) {
+    console.error('语音合成失败：', e);
+    // 兜底
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-CN';
+      window.speechSynthesis.speak(utterance);
     }
+  }
+}
 
     async function sendMessage(message) {
       addMessage(message, 'user');
