@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>天赋管家</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="天赋">
+  <link rel="apple-touch-icon" href="icon.png">
+  <style>
+    body { font-family: sans-serif; background: #1a1a1a; color: #eee; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+    #chat { flex: 1; overflow-y: auto; margin-bottom: 20px; border: 1px solid #444; border-radius: 10px; padding: 10px; background: #2a2a2a; }
+    .msg { margin: 10px 0; padding: 10px; border-radius: 10px; max-width: 80%; clear: both; }
+    .user { background: #0078d4; color: white; float: right; }
+    .tianfu { background: #444; color: #eee; float: left; }
+    .controls { display: flex; gap: 10px; }
+    button { flex: 1; padding: 15px; font-size: 18px; border: none; border-radius: 10px; background: #0078d4; color: white; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>🤵 天赋管家</h2>
+  <div id="chat"></div>
+  <div class="controls">
+    <button id="micBtn">🎤 按住说话</button>
+  </div>
+
+  <script>
+    const chatDiv = document.getElementById('chat');
+    const micBtn = document.getElementById('micBtn');
+    let history = [];
+    let recognition;
+
+    function addMessage(text, role) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = text;
+      chatDiv.appendChild(div);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+
+    function speakText(text) {
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'zh-CN';
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    async function sendMessage(message) {
+      addMessage(message, 'user');
+      const resp = await fetch('/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: message, history: history})
+      });
+      const data = await resp.json();
+      addMessage(data.reply, 'tianfu');
+      speakText(data.reply);
+      history.push({role: 'user', content: message});
+      history.push({role: 'assistant', content: data.reply});
+      if (history.length > 20) history = history.slice(-20);
+    }
+
+    micBtn.addEventListener('pointerdown', () => {
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('您的浏览器不支持语音识别，请使用 Chrome。');
+        return;
+      }
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.lang = 'zh-CN';
+      recognition.interimResults = false;
+      recognition.start();
+      micBtn.textContent = '🔴 正在听...';
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        sendMessage(transcript);
+      };
+      recognition.onerror = () => addMessage('抱歉，没听清。', 'tianfu');
+      recognition.onend = () => { micBtn.textContent = '🎤 按住说话'; };
+    });
+    micBtn.addEventListener('pointerup', () => { if (recognition) recognition.stop(); });
+    micBtn.addEventListener('pointerleave', () => { if (recognition) recognition.stop(); });
+
+    // ---------- 推送订阅 ----------
+    let swRegistration = null;
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        swRegistration = await navigator.serviceWorker.register('/sw.js');
+        await subscribeUser();
+      });
+    }
+
+    async function subscribeUser() {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      const vapidPublicKey = 'BJr_tACbqDfV_wonTD96-Yfm8Cg9uQkvUIMfyHpLlSQ_tyAg2vI4v5nLlO_kECYioqgM6knD84qx2UtJjk9XCeY';   // 替换！
+      const convertedKey = urlBase64ToUint8Array(vapidPublicKey);
+      const subscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey
+      });
+      await fetch('/subscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(subscription)
+      });
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
+  </script>
+</body>
+</html>
