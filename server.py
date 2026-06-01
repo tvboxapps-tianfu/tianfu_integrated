@@ -135,13 +135,13 @@ def chat():
         messages.extend(history[-10:])
     messages.append({"role": "user", "content": user_text})
 
-   response = client.chat.completions.create(
-    model="deepseek-chat",
-    messages=messages,
-    temperature=0.8,
-    tools=tools,
-    tool_choice="auto",
-    enable_search=True   # 允许联网搜索
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=messages,
+        temperature=0.8,
+        tools=tools,
+        tool_choice="auto",
+        enable_search=True   # 允许联网搜索
 )
     reply_msg = response.choices[0].message
 
