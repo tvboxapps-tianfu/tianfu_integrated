@@ -28,7 +28,7 @@
       color: white;
     }
 
-    /* ===== 动态加载点动画 ===== */
+    /* 动态加载点动画 */
     @keyframes dotPulse {
       0%, 100% { opacity: 0.2; transform: translateY(0); }
       50%      { opacity: 1;   transform: translateY(-5px); }
@@ -52,6 +52,7 @@
   </div>
 
   <script>
+    // ==================== 全局变量 ====================
     const chatDiv = document.getElementById('chat');
     const micBtn = document.getElementById('micBtn');
     const lockBtn = document.getElementById('lockBtn');
@@ -61,6 +62,7 @@
     let isHolding = false;
     let micButtonLocked = false;
 
+    // ==================== 辅助函数 ====================
     function addMessage(text, role) {
       const div = document.createElement('div');
       div.className = 'msg ' + role;
@@ -70,7 +72,7 @@
       return div;
     }
 
-    // ========== 语音输出（冲突避免）==========
+    // ==================== 语音输出（云希男声 + 冲突避免）====================
     let currentAudio = null;
 
     async function speakText(text) {
@@ -93,6 +95,7 @@
         audio.onended = () => { currentAudio = null; };
       } catch(e) {
         console.error('语音合成失败：', e);
+        // 兜底：浏览器自带语音
         if ('speechSynthesis' in window) {
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.lang = 'zh-CN';
@@ -101,7 +104,7 @@
       }
     }
 
-    // ========== 发送消息（动态加载点）==========
+    // ==================== 发送消息（动态加载点）====================
     async function sendMessage(message) {
       addMessage(message, 'user');
 
@@ -127,9 +130,9 @@
       if (history.length > 20) history = history.slice(-20);
     }
 
-        // ========== 语音输入（支持锁定）==========
+    // ==================== 语音识别核心 ====================
     function startRecognition() {
-      // 检查浏览器是否支持语音识别
+      console.log('startRecognition 被调用');  // 调试日志
       if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         alert('您的浏览器不支持语音识别，请使用 Chrome。');
         return;
@@ -146,12 +149,13 @@
 
         recognition.onresult = (event) => {
           const transcript = event.results[0][0].transcript;
+          console.log('识别结果:', transcript);
           sendMessage(transcript);
         };
         recognition.onerror = (event) => {
           console.error('语音识别错误', event.error);
           if (event.error === 'no-speech' || event.error === 'aborted') {
-            // 不提示
+            // 正常，不提示
           } else if (event.error === 'not-allowed') {
             alert('麦克风权限被拒绝，请在浏览器设置中允许麦克风。');
           } else {
@@ -159,10 +163,13 @@
           }
         };
         recognition.onend = () => {
+          console.log('识别结束，isHolding:', isHolding, 'micButtonLocked:', micButtonLocked);
           if (micButtonLocked || isHolding) {
             try {
               recognition.start();
-            } catch (e) {}
+            } catch (e) {
+              console.warn('重启识别失败', e);
+            }
           } else {
             micBtn.textContent = '🎤 按住说话';
           }
@@ -170,6 +177,7 @@
 
         recognition.start();
         micBtn.textContent = '🔴 正在听...';
+        console.log('语音识别已启动');
       } catch (e) {
         console.error('启动语音识别失败', e);
         alert('无法启动麦克风，请检查权限或刷新重试。');
@@ -177,6 +185,7 @@
     }
 
     function stopRecognition() {
+      console.log('stopRecognition 被调用');
       isHolding = false;
       micButtonLocked = false;
       if (recognition) {
@@ -190,8 +199,10 @@
       }
     }
 
+    // ==================== 按钮事件绑定 ====================
     // 锁定按钮
     lockBtn.addEventListener('click', () => {
+      console.log('锁定按钮点击，当前状态:', isLocked);
       isLocked = !isLocked;
       if (isLocked) {
         lockBtn.textContent = '🔒';
@@ -205,11 +216,12 @@
       }
     });
 
-    // 麦克风按钮：统一用 pointerdown/pointerup（同时支持触屏和鼠标，且保证用户手势）
+    // 麦克风按钮：使用 pointerdown/pointerup 统一处理（触屏和鼠标）
     micBtn.addEventListener('pointerdown', function(e) {
       e.preventDefault();
+      console.log('pointerdown 触发，isLocked:', isLocked);
       if (isLocked) {
-        // 锁定模式下，点击切换录音状态
+        // 锁定模式下切换录音状态
         if (micButtonLocked) {
           stopRecognition();
         } else {
@@ -226,22 +238,24 @@
 
     micBtn.addEventListener('pointerup', function(e) {
       e.preventDefault();
+      console.log('pointerup 触发，isLocked:', isLocked);
       if (!isLocked) {
         stopRecognition();
       }
-      // 锁定模式下由再次点击或解锁控制，这里不停止
+      // 锁定模式下保持录音，不停止
     });
 
     micBtn.addEventListener('pointerleave', function(e) {
+      console.log('pointerleave 触发');
       if (!isLocked && isHolding) {
         stopRecognition();
       }
     });
 
-    // 为防止移动端长按弹出菜单，取消上下文菜单
+    // 防止长按弹出菜单
     micBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // ========== 推送订阅 ==========
+    // ==================== 推送订阅 ====================
     let swRegistration = null;
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
