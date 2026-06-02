@@ -127,45 +127,53 @@
       if (history.length > 20) history = history.slice(-20);
     }
 
-    // ========== 语音输入（支持锁定）==========
+        // ========== 语音输入（支持锁定）==========
     function startRecognition() {
+      // 检查浏览器是否支持语音识别
       if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         alert('您的浏览器不支持语音识别，请使用 Chrome。');
         return;
       }
-      if (recognition) {
-        recognition.abort();
+      try {
+        if (recognition) {
+          recognition.abort();
+        }
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.lang = 'zh-CN';
+        recognition.interimResults = false;
+        recognition.continuous = false;
+
+        recognition.onresult = (event) => {
+          const transcript = event.results[0][0].transcript;
+          sendMessage(transcript);
+        };
+        recognition.onerror = (event) => {
+          console.error('语音识别错误', event.error);
+          if (event.error === 'no-speech' || event.error === 'aborted') {
+            // 不提示
+          } else if (event.error === 'not-allowed') {
+            alert('麦克风权限被拒绝，请在浏览器设置中允许麦克风。');
+          } else {
+            addMessage('抱歉，没听清。', 'tianfu');
+          }
+        };
+        recognition.onend = () => {
+          if (micButtonLocked || isHolding) {
+            try {
+              recognition.start();
+            } catch (e) {}
+          } else {
+            micBtn.textContent = '🎤 按住说话';
+          }
+        };
+
+        recognition.start();
+        micBtn.textContent = '🔴 正在听...';
+      } catch (e) {
+        console.error('启动语音识别失败', e);
+        alert('无法启动麦克风，请检查权限或刷新重试。');
       }
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognition = new SpeechRecognition();
-      recognition.lang = 'zh-CN';
-      recognition.interimResults = false;
-      recognition.continuous = false;
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        sendMessage(transcript);
-      };
-      recognition.onerror = (event) => {
-        console.error('语音识别错误', event.error);
-        if (event.error === 'no-speech' || event.error === 'aborted') {
-          // 正常情况
-        } else {
-          addMessage('抱歉，没听清。', 'tianfu');
-        }
-      };
-      recognition.onend = () => {
-        if (micButtonLocked || isHolding) {
-          try {
-            recognition.start();
-          } catch (e) {}
-        } else {
-          micBtn.textContent = '🎤 按住说话';
-        }
-      };
-
-      recognition.start();
-      micBtn.textContent = '🔴 正在听...';
     }
 
     function stopRecognition() {
@@ -182,6 +190,7 @@
       }
     }
 
+    // 锁定按钮
     lockBtn.addEventListener('click', () => {
       isLocked = !isLocked;
       if (isLocked) {
@@ -196,47 +205,41 @@
       }
     });
 
-    micBtn.addEventListener('click', (e) => {
-      if (!isLocked) return;
-      if (micButtonLocked) {
-        stopRecognition();
+    // 麦克风按钮：统一用 pointerdown/pointerup（同时支持触屏和鼠标，且保证用户手势）
+    micBtn.addEventListener('pointerdown', function(e) {
+      e.preventDefault();
+      if (isLocked) {
+        // 锁定模式下，点击切换录音状态
+        if (micButtonLocked) {
+          stopRecognition();
+        } else {
+          micButtonLocked = true;
+          isHolding = true;
+          startRecognition();
+        }
       } else {
-        micButtonLocked = true;
+        // 非锁定：按住开始
         isHolding = true;
         startRecognition();
       }
     });
 
-    micBtn.addEventListener('touchstart', (e) => {
-      if (isLocked) return;
+    micBtn.addEventListener('pointerup', function(e) {
       e.preventDefault();
-      isHolding = true;
-      startRecognition();
-    });
-    micBtn.addEventListener('touchend', (e) => {
-      if (isLocked) return;
-      e.preventDefault();
-      stopRecognition();
-    });
-    micBtn.addEventListener('touchcancel', (e) => {
-      if (isLocked) return;
-      e.preventDefault();
-      stopRecognition();
+      if (!isLocked) {
+        stopRecognition();
+      }
+      // 锁定模式下由再次点击或解锁控制，这里不停止
     });
 
-    micBtn.addEventListener('pointerdown', (e) => {
-      if (isLocked || e.pointerType === 'touch') return;
-      isHolding = true;
-      startRecognition();
+    micBtn.addEventListener('pointerleave', function(e) {
+      if (!isLocked && isHolding) {
+        stopRecognition();
+      }
     });
-    micBtn.addEventListener('pointerup', (e) => {
-      if (isLocked || e.pointerType === 'touch') return;
-      stopRecognition();
-    });
-    micBtn.addEventListener('pointerleave', (e) => {
-      if (isLocked || e.pointerType === 'touch') return;
-      stopRecognition();
-    });
+
+    // 为防止移动端长按弹出菜单，取消上下文菜单
+    micBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // ========== 推送订阅 ==========
     let swRegistration = null;
