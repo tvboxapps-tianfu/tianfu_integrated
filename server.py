@@ -1,20 +1,20 @@
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from openai import OpenAI
-import json, os, time, threading, schedule, subprocess, uuid, requests
+import json, os, re, time, threading, schedule, subprocess, uuid, requests
 from datetime import datetime
 from pywebpush import webpush, WebPushException
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# ========== 配置信息（请根据实际情况修改） ==========
+# ========== 配置信息 ==========
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_KEY", "sk-72d7c58fb266476f8eef5e1d3ca3951a")
 VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "gWl0fvQHUnknqrL5Gb9RQo3Y4HrrpJC-tCTMVpdrpPs")
 VAPID_CLAIMS = {"sub": os.environ.get("VAPID_CLAIMS_EMAIL", "mailto:tvboxapps88@gmail.com")}
-HA_URL = os.environ.get("HA_URL", "http://你的HA地址:8123")   # 没有 Home Assistant 可忽略
+HA_URL = os.environ.get("HA_URL", "http://你的HA地址:8123")
 HA_TOKEN = os.environ.get("HA_TOKEN", "")
-# =================================================
+# =============================
 
 client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 MEMORY_FILE = "tianfu_memory.json"
@@ -37,7 +37,7 @@ def build_system_prompt():
     return f"""你是“天赋”，一位优雅、体贴、略带幽默感的英式管家。
 当前主人的称呼是：{mem['owner_name']}。
 你已知晓主人的习惯：{prefs}。
-回答简洁明了。如有智能家居控制需求，你会使用相关工具。"""
+回答简洁明了，语气自然，像真实管家对话，不要使用任何 Markdown 格式。如有智能家居控制需求，你会使用相关工具。"""
 
 # ---------- 推送通知 ----------
 def load_subscriptions():
@@ -141,7 +141,7 @@ def chat():
         temperature=0.8,
         tools=tools,
         tool_choice="auto"
-)
+    )
     reply_msg = response.choices[0].message
 
     if reply_msg.tool_calls:
@@ -183,8 +183,18 @@ def speak_tts():
     text = request.json.get("text", "")
     if not text:
         return "无文本", 400
+
+    # 清洗文本，去除 Markdown 和多余符号，让语音更自然
+    text = re.sub(r'\*\*|__', '', text)
+    text = re.sub(r'(?<!\*)\*(?!\*)|(?<!_)_(?!_)', '', text)
+    text = text.replace('`', '')
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'\n+', '。 ', text)
+    text = re.sub(r' +', ' ', text).strip()
+    if text and text[-1] not in '。！？.!?':
+        text += '。'
+
     filename = f"static/audio_{uuid.uuid4().hex}.mp3"
-    # 使用命令行调用 edge-tts，生成男声云希
     subprocess.run([
         "edge-tts",
         "--voice", "zh-CN-YunxiNeural",

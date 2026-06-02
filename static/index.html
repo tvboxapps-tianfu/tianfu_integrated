@@ -17,7 +17,30 @@
     .user { background: #0078d4; color: white; float: right; }
     .tianfu { background: #444; color: #eee; float: left; }
     .controls { display: flex; gap: 10px; }
-    button { flex: 1; padding: 15px; font-size: 18px; border: none; border-radius: 10px; background: #0078d4; color: white; cursor: pointer; }
+    button { flex: 1; padding: 15px; font-size: 18px; border: none; border-radius: 10px; background: #0078d4; color: white; cursor: pointer; touch-action: none; user-select: none; }
+    #lockBtn {
+      flex: 0.3;
+      background: #555;
+      font-size: 20px;
+    }
+    #lockBtn.locked {
+      background: #c0392b;
+      color: white;
+    }
+
+    /* ===== 动态加载点动画 ===== */
+    @keyframes dotPulse {
+      0%, 100% { opacity: 0.2; transform: translateY(0); }
+      50%      { opacity: 1;   transform: translateY(-5px); }
+    }
+    .loading-dots span {
+      display: inline-block;
+      animation: dotPulse 1.4s infinite;
+      font-size: 24px;
+      line-height: 1;
+    }
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
   </style>
 </head>
 <body>
@@ -25,13 +48,18 @@
   <div id="chat"></div>
   <div class="controls">
     <button id="micBtn">🎤 按住说话</button>
+    <button id="lockBtn">🔓</button>
   </div>
 
   <script>
     const chatDiv = document.getElementById('chat');
     const micBtn = document.getElementById('micBtn');
+    const lockBtn = document.getElementById('lockBtn');
     let history = [];
     let recognition;
+    let isLocked = false;
+    let isHolding = false;
+    let micButtonLocked = false;
 
     function addMessage(text, role) {
       const div = document.createElement('div');
@@ -39,48 +67,48 @@
       div.textContent = text;
       chatDiv.appendChild(div);
       chatDiv.scrollTop = chatDiv.scrollHeight;
+      return div;
     }
 
-    // ========== 语音输出：后端云希男声，失败时回退浏览器语音 ==========
-   let currentAudio = null;   // 全局变量，记录当前播放的音频
+    // ========== 语音输出 ==========
+    let currentAudio = null;
 
-async function speakText(text) {
-  // 如果之前有音频在播，立即停止
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
-  }
-  try {
-    const resp = await fetch('/speak', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text: text})
-    });
-    if (!resp.ok) throw new Error('语音请求失败');
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    currentAudio = audio;
-    audio.play();
-    audio.onended = () => { currentAudio = null; };  // 播放完毕自动清除
-  } catch(e) {
-    console.error('语音合成失败：', e);
-    // 兜底
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN';
-      window.speechSynthesis.speak(utterance);
+    async function speakText(text) {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+      }
+      try {
+        const resp = await fetch('/speak', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: text})
+        });
+        if (!resp.ok) throw new Error('语音请求失败');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudio = audio;
+        audio.play();
+        audio.onended = () => { currentAudio = null; };
+      } catch(e) {
+        console.error('语音合成失败：', e);
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'zh-CN';
+          window.speechSynthesis.speak(utterance);
+        }
+      }
     }
-  }
-}
 
+    // ========== 发送消息（动态加载点）==========
     async function sendMessage(message) {
       addMessage(message, 'user');
-  
-      // 显示临时加载提示
+
+      // 创建动态“...”占位符
       const placeholder = document.createElement('div');
-      placeholder.className = 'msg tianfu';
-      placeholder.textContent = '...';
+      placeholder.className = 'msg tianfu loading-dots';
+      placeholder.innerHTML = '<span>.</span><span>.</span><span>.</span>';
       chatDiv.appendChild(placeholder);
       chatDiv.scrollTop = chatDiv.scrollHeight;
 
@@ -91,36 +119,126 @@ async function speakText(text) {
       });
       const data = await resp.json();
 
-      // 将临时提示替换为真实回复
+      // 替换为真实回复（移除动画类）
+      placeholder.className = 'msg tianfu';
       placeholder.textContent = data.reply;
-      speakText(data.reply);                    // 调用后端男声
+      speakText(data.reply);
 
       history.push({role: 'user', content: message});
       history.push({role: 'assistant', content: data.reply});
       if (history.length > 20) history = history.slice(-20);
     }
 
-    // ========== 语音输入 ==========
-    micBtn.addEventListener('pointerdown', () => {
+    // ========== 语音输入（支持锁定） ==========
+    function startRecognition() {
       if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         alert('您的浏览器不支持语音识别，请使用 Chrome。');
         return;
+      }
+      if (recognition) {
+        recognition.abort();
       }
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognition = new SpeechRecognition();
       recognition.lang = 'zh-CN';
       recognition.interimResults = false;
-      recognition.start();
-      micBtn.textContent = '🔴 正在听...';
+      recognition.continuous = false;
+
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         sendMessage(transcript);
       };
-      recognition.onerror = () => addMessage('抱歉，没听清。', 'tianfu');
-      recognition.onend = () => { micBtn.textContent = '🎤 按住说话'; };
+      recognition.onerror = (event) => {
+        console.error('语音识别错误', event.error);
+        if (event.error === 'no-speech' || event.error === 'aborted') {
+          // 正常
+        } else {
+          addMessage('抱歉，没听清。', 'tianfu');
+        }
+      };
+      recognition.onend = () => {
+        if (micButtonLocked || isHolding) {
+          try {
+            recognition.start();
+          } catch (e) {}
+        } else {
+          micBtn.textContent = '🎤 按住说话';
+        }
+      };
+
+      recognition.start();
+      micBtn.textContent = '🔴 正在听...';
+    }
+
+    function stopRecognition() {
+      isHolding = false;
+      micButtonLocked = false;
+      if (recognition) {
+        recognition.abort();
+        recognition = null;
+      }
+      micBtn.textContent = '🎤 按住说话';
+      if (!isLocked) {
+        lockBtn.textContent = '🔓';
+        lockBtn.classList.remove('locked');
+      }
+    }
+
+    lockBtn.addEventListener('click', () => {
+      isLocked = !isLocked;
+      if (isLocked) {
+        lockBtn.textContent = '🔒';
+        lockBtn.classList.add('locked');
+      } else {
+        lockBtn.textContent = '🔓';
+        lockBtn.classList.remove('locked');
+        if (micButtonLocked) {
+          stopRecognition();
+        }
+      }
     });
-    micBtn.addEventListener('pointerup', () => { if (recognition) recognition.stop(); });
-    micBtn.addEventListener('pointerleave', () => { if (recognition) recognition.stop(); });
+
+    micBtn.addEventListener('click', (e) => {
+      if (!isLocked) return;
+      if (micButtonLocked) {
+        stopRecognition();
+      } else {
+        micButtonLocked = true;
+        isHolding = true;
+        startRecognition();
+      }
+    });
+
+    micBtn.addEventListener('touchstart', (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      isHolding = true;
+      startRecognition();
+    });
+    micBtn.addEventListener('touchend', (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      stopRecognition();
+    });
+    micBtn.addEventListener('touchcancel', (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      stopRecognition();
+    });
+
+    micBtn.addEventListener('pointerdown', (e) => {
+      if (isLocked || e.pointerType === 'touch') return;
+      isHolding = true;
+      startRecognition();
+    });
+    micBtn.addEventListener('pointerup', (e) => {
+      if (isLocked || e.pointerType === 'touch') return;
+      stopRecognition();
+    });
+    micBtn.addEventListener('pointerleave', (e) => {
+      if (isLocked || e.pointerType === 'touch') return;
+      stopRecognition();
+    });
 
     // ========== 推送订阅 ==========
     let swRegistration = null;
