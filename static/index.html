@@ -76,14 +76,25 @@ async function speakText(text) {
 
     async function sendMessage(message) {
       addMessage(message, 'user');
+  
+      // 显示临时加载提示
+      const placeholder = document.createElement('div');
+      placeholder.className = 'msg tianfu';
+      placeholder.textContent = '...';
+      chatDiv.appendChild(placeholder);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+
       const resp = await fetch('/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({message: message, history: history})
       });
       const data = await resp.json();
-      addMessage(data.reply, 'tianfu');
-      speakText(data.reply);                    // 现在会调用后端男声
+
+      // 将临时提示替换为真实回复
+      placeholder.textContent = data.reply;
+      speakText(data.reply);                    // 调用后端男声
+
       history.push({role: 'user', content: message});
       history.push({role: 'assistant', content: data.reply});
       if (history.length > 20) history = history.slice(-20);
