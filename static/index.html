@@ -199,7 +199,7 @@
       }
     }
 
-    // ==================== 按钮事件绑定 ====================
+       // ==================== 按钮事件绑定 ====================
     // 锁定按钮
     lockBtn.addEventListener('click', () => {
       console.log('锁定按钮点击，当前状态:', isLocked);
@@ -216,12 +216,12 @@
       }
     });
 
-    // 麦克风按钮：使用 pointerdown/pointerup 统一处理（触屏和鼠标）
-    micBtn.addEventListener('pointerdown', function(e) {
+    // ----- 移动端：touchstart/touchend （确保获取用户手势）-----
+    micBtn.addEventListener('touchstart', function(e) {
       e.preventDefault();
-      console.log('pointerdown 触发，isLocked:', isLocked);
+      e.stopPropagation();
+      console.log('touchstart 触发，isLocked:', isLocked);
       if (isLocked) {
-        // 锁定模式下切换录音状态
         if (micButtonLocked) {
           stopRecognition();
         } else {
@@ -230,22 +230,58 @@
           startRecognition();
         }
       } else {
-        // 非锁定：按住开始
+        isHolding = true;
+        startRecognition();
+      }
+    });
+
+    micBtn.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('touchend 触发');
+      if (!isLocked) {
+        stopRecognition();
+      }
+    });
+
+    micBtn.addEventListener('touchcancel', function(e) {
+      console.log('touchcancel 触发');
+      if (!isLocked && isHolding) {
+        stopRecognition();
+      }
+    });
+
+    // ----- 桌面端：pointerdown/pointerup （备用）-----
+    micBtn.addEventListener('pointerdown', function(e) {
+      // 如果是触摸设备，由 touchstart 处理，这里忽略
+      if (e.pointerType === 'touch') return;
+      e.preventDefault();
+      console.log('pointerdown 触发，isLocked:', isLocked);
+      if (isLocked) {
+        if (micButtonLocked) {
+          stopRecognition();
+        } else {
+          micButtonLocked = true;
+          isHolding = true;
+          startRecognition();
+        }
+      } else {
         isHolding = true;
         startRecognition();
       }
     });
 
     micBtn.addEventListener('pointerup', function(e) {
+      if (e.pointerType === 'touch') return;
       e.preventDefault();
-      console.log('pointerup 触发，isLocked:', isLocked);
+      console.log('pointerup 触发');
       if (!isLocked) {
         stopRecognition();
       }
-      // 锁定模式下保持录音，不停止
     });
 
     micBtn.addEventListener('pointerleave', function(e) {
+      if (e.pointerType === 'touch') return;
       console.log('pointerleave 触发');
       if (!isLocked && isHolding) {
         stopRecognition();
